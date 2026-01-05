@@ -101,8 +101,9 @@ rsync -av \
 # ----------------------------------
 echo "[setup.sh] Building ${PKG_NAME}"
 
-set +e
+set +ue
 source /opt/ros/humble/setup.bash
+set -u
 cd "${TB3_WS}"
 colcon build --symlink-install --packages-select "${PKG_NAME}"
 BUILD_RC=$?
@@ -128,7 +129,9 @@ fi
 # ----------------------------------
 rm -rf "${BACKUP_DIR}"
 
+set +u
 source "${TB3_WS}/install/setup.bash"
+set -u
 
 echo "[setup.sh] Done."
 echo "[setup.sh] Run:"
