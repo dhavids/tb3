@@ -101,10 +101,16 @@ rsync -av \
 # ----------------------------------
 echo "[setup.sh] Building ${PKG_NAME}"
 
-set +ue
+# ROS setup scripts are NOT nounset-safe
+export AMENT_TRACE_SETUP_FILES=""
+
+set +u
 source /opt/ros/humble/setup.bash
 set -u
+
 cd "${TB3_WS}"
+
+set +e
 colcon build --symlink-install --packages-select "${PKG_NAME}"
 BUILD_RC=$?
 set -e
@@ -129,6 +135,7 @@ fi
 # ----------------------------------
 rm -rf "${BACKUP_DIR}"
 
+export AMENT_TRACE_SETUP_FILES=""
 set +u
 source "${TB3_WS}/install/setup.bash"
 set -u
