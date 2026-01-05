@@ -5,15 +5,11 @@ set -euo pipefail
 # Argument parsing
 # ----------------------------------
 SILENT=0
-NO_PULL=0
 
 for arg in "$@"; do
     case "$arg" in
         --silent)
             SILENT=1
-            ;;
-        --no-pull)
-            NO_PULL=1
             ;;
     esac
 done
@@ -32,7 +28,6 @@ fi
 # ----------------------------------
 # Configuration
 # ----------------------------------
-TB3_GIT_URL="https://github.com/dhavids/tb3.git"
 PKG_NAME="turtlebot3_control"
 
 # ----------------------------------
@@ -53,56 +48,23 @@ BACKUP_DIR="${TB3_SRC}/.${PKG_NAME}.backup"
 # ----------------------------------
 # Sanity checks
 # ----------------------------------
-[[ -d "${BASE_DIR}" ]] || { echo "[setup.sh] ERROR: BASE_DIR missing" >&2; exit 1; }
-[[ -d "${TB3_WS}" ]]  || { echo "[setup.sh] ERROR: TurtleBot3 WS missing" >&2; exit 1; }
-[[ -d "${TB3_SRC}" ]] || { echo "[setup.sh] ERROR: turtlebot3 src missing" >&2; exit 1; }
+[[ -d "${TB3_REPO}" ]] || {
+    echo "[setup.sh] ERROR: tb3 repo not found at ${TB3_REPO}" >&2
+    exit 1
+}
 
-# ----------------------------------
-# Git options
-# ----------------------------------
-GIT_QUIET=()
-[[ "${SILENT}" -eq 1 ]] && GIT_QUIET+=(--quiet)
-
-# ----------------------------------
-# Clone / update tb3 repo
-# ----------------------------------
-if [[ ! -d "${TB3_REPO}" ]]; then
-    [[ "${NO_PULL}" -eq 1 ]] && {
-        echo "[setup.sh] ERROR: tb3 repo missing and --no-pull specified" >&2
-        exit 1
-    }
-
-    log "[setup.sh] Cloning tb3 repo"
-    cd "${BASE_DIR}"
-    git clone "${TB3_GIT_URL}" tb3 "${GIT_QUIET[@]}"
-else
-    [[ -d "${TB3_REPO}/.git" ]] || {
-        echo "[setup.sh] ERROR: ${TB3_REPO} exists but is not a git repo" >&2
-        exit 1
-    }
-
-    if [[ "${NO_PULL}" -eq 0 ]]; then
-        log "[setup.sh] Updating tb3 repo"
-        cd "${TB3_REPO}"
-
-        BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
-        [[ -n "${BRANCH}" ]] || {
-            echo "[setup.sh] ERROR: detached HEAD state" >&2
-            exit 1
-        }
-
-        git fetch origin "${GIT_QUIET[@]}"
-        git pull --ff-only origin "${BRANCH}" "${GIT_QUIET[@]}"
-    else
-        log "[setup.sh] --no-pull specified, skipping git update"
-    fi
-fi
-
-# ----------------------------------
-# Verify package exists
-# ----------------------------------
 [[ -d "${PUBLIC_PKG}" ]] || {
     echo "[setup.sh] ERROR: ${PKG_NAME} not found in tb3 repo" >&2
+    exit 1
+}
+
+[[ -d "${TB3_WS}" ]] || {
+    echo "[setup.sh] ERROR: TurtleBot3 workspace not found at ${TB3_WS}" >&2
+    exit 1
+}
+
+[[ -d "${TB3_SRC}" ]] || {
+    echo "[setup.sh] ERROR: turtlebot3 src folder not found at ${TB3_SRC}" >&2
     exit 1
 }
 
@@ -154,6 +116,7 @@ if [[ ${BUILD_RC} -ne 0 ]]; then
         mv "${BACKUP_DIR}" "${TB3_DST_PKG}"
         echo "[setup.sh] Restored previous ${PKG_NAME}" >&2
     fi
+
     exit 1
 fi
 
