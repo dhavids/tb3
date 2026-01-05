@@ -5,12 +5,15 @@ set -euo pipefail
 # Argument parsing
 # ----------------------------------
 SILENT=0
+NO_PULL=0
+
 for arg in "$@"; do
     case "$arg" in
         --silent)
             SILENT=1
             ;;
-        *)
+        --no-pull)
+            NO_PULL=1
             ;;
     esac
 done
@@ -21,8 +24,13 @@ log() {
     fi
 }
 
+# If silent, redirect once globally (PTY-safe)
+if [[ "${SILENT}" -eq 1 ]]; then
+    exec >/dev/null 2>&1
+fi
+
 # ----------------------------------
-# Configuration (edit only if needed)
+# Configuration
 # ----------------------------------
 TB3_GIT_URL="https://github.com/dhavids/tb3.git"
 PKG_NAME="turtlebot3_control"
@@ -45,57 +53,61 @@ BACKUP_DIR="${TB3_SRC}/.${PKG_NAME}.backup"
 # ----------------------------------
 # Sanity checks
 # ----------------------------------
-if [[ ! -d "${BASE_DIR}" ]]; then
-    echo "[setup.sh] ERROR: BASE_DIR does not exist" >&2
-    exit 1
-fi
-
-if [[ ! -d "${TB3_WS}" ]]; then
-    echo "[setup.sh] ERROR: TurtleBot3 workspace not found at ${TB3_WS}" >&2
-    exit 1
-fi
-
-if [[ ! -d "${TB3_SRC}" ]]; then
-    echo "[setup.sh] ERROR: TurtleBot3 src folder not found at ${TB3_SRC}" >&2
-    exit 1
-fi
+[[ -d "${BASE_DIR}" ]] || { echo "[setup.sh] ERROR: BASE_DIR missing" >&2; exit 1; }
+[[ -d "${TB3_WS}" ]]  || { echo "[setup.sh] ERROR: TurtleBot3 WS missing" >&2; exit 1; }
+[[ -d "${TB3_SRC}" ]] || { echo "[setup.sh] ERROR: turtlebot3 src missing" >&2; exit 1; }
 
 # ----------------------------------
-# Clone or update tb3 repo
+# Git options
+# ----------------------------------
+GIT_QUIET=()
+[[ "${SILENT}" -eq 1 ]] && GIT_QUIET+=(--quiet)
+
+# ----------------------------------
+# Clone / update tb3 repo
 # ----------------------------------
 if [[ ! -d "${TB3_REPO}" ]]; then
-    log "[setup.sh] tb3 repo not found, cloning..."
+    [[ "${NO_PULL}" -eq 1 ]] && {
+        echo "[setup.sh] ERROR: tb3 repo missing and --no-pull specified" >&2
+        exit 1
+    }
+
+    log "[setup.sh] Cloning tb3 repo"
     cd "${BASE_DIR}"
-    git clone "${TB3_GIT_URL}" tb3 ${SILENT:+>/dev/null}
+    git clone "${TB3_GIT_URL}" tb3 "${GIT_QUIET[@]}"
 else
-    if [[ ! -d "${TB3_REPO}/.git" ]]; then
+    [[ -d "${TB3_REPO}/.git" ]] || {
         echo "[setup.sh] ERROR: ${TB3_REPO} exists but is not a git repo" >&2
         exit 1
+    }
+
+    if [[ "${NO_PULL}" -eq 0 ]]; then
+        log "[setup.sh] Updating tb3 repo"
+        cd "${TB3_REPO}"
+
+        BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
+        [[ -n "${BRANCH}" ]] || {
+            echo "[setup.sh] ERROR: detached HEAD state" >&2
+            exit 1
+        }
+
+        git fetch origin "${GIT_QUIET[@]}"
+        git pull --ff-only origin "${BRANCH}" "${GIT_QUIET[@]}"
+    else
+        log "[setup.sh] --no-pull specified, skipping git update"
     fi
-
-    log "[setup.sh] Updating tb3 repo from git"
-    cd "${TB3_REPO}"
-
-    BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
-    if [[ -z "${BRANCH}" ]]; then
-        echo "[setup.sh] ERROR: tb3 repo is in detached HEAD state" >&2
-        exit 1
-    fi
-
-    git fetch origin ${SILENT:+>/dev/null}
-    git pull --ff-only origin "${BRANCH}" ${SILENT:+>/dev/null}
 fi
 
 # ----------------------------------
-# Verify package exists in public repo
+# Verify package exists
 # ----------------------------------
-if [[ ! -d "${PUBLIC_PKG}" ]]; then
-    echo "[setup.sh] ERROR: ${PKG_NAME} not found in tb3 repo after update" >&2
+[[ -d "${PUBLIC_PKG}" ]] || {
+    echo "[setup.sh] ERROR: ${PKG_NAME} not found in tb3 repo" >&2
     exit 1
-fi
+}
 
 # ----------------------------------
-# Backup existing package (rollback safety)
+# Backup existing package
 # ----------------------------------
 if [[ -d "${TB3_DST_PKG}" ]]; then
     log "[setup.sh] Backing up existing ${PKG_NAME}"
@@ -104,21 +116,20 @@ if [[ -d "${TB3_DST_PKG}" ]]; then
 fi
 
 # ----------------------------------
-# Deploy new package
+# Deploy package
 # ----------------------------------
-log "[setup.sh] Deploying ${PKG_NAME} to TurtleBot3 workspace"
+log "[setup.sh] Deploying ${PKG_NAME}"
 
-rsync -av \
+rsync -a \
     --exclude build \
     --exclude install \
     --exclude log \
     --exclude __pycache__ \
     --exclude "*.pyc" \
-    "${PUBLIC_PKG}/" "${TB3_DST_PKG}/" \
-    ${SILENT:+>/dev/null}
+    "${PUBLIC_PKG}/" "${TB3_DST_PKG}/"
 
 # ----------------------------------
-# Build package (with rollback)
+# Build (with rollback)
 # ----------------------------------
 log "[setup.sh] Building ${PKG_NAME}"
 
@@ -131,27 +142,23 @@ set -u
 cd "${TB3_WS}"
 
 set +e
-colcon build --symlink-install --packages-select "${PKG_NAME}" ${SILENT:+>/dev/null}
+colcon build --symlink-install --packages-select "${PKG_NAME}"
 BUILD_RC=$?
 set -e
 
 if [[ ${BUILD_RC} -ne 0 ]]; then
     echo "[setup.sh] ERROR: build failed, rolling back" >&2
-
     rm -rf "${TB3_DST_PKG}"
 
     if [[ -d "${BACKUP_DIR}" ]]; then
         mv "${BACKUP_DIR}" "${TB3_DST_PKG}"
         echo "[setup.sh] Restored previous ${PKG_NAME}" >&2
-    else
-        echo "[setup.sh] WARNING: no backup package to restore" >&2
     fi
-
     exit 1
 fi
 
 # ----------------------------------
-# Cleanup backup + source workspace
+# Cleanup + source workspace
 # ----------------------------------
 rm -rf "${BACKUP_DIR}"
 
@@ -161,6 +168,13 @@ source "${TB3_WS}/install/setup.bash"
 set -u
 
 log "[setup.sh] Done."
-log "[setup.sh] Run:"
+log "Run:"
 log "  ros2 run ${PKG_NAME} marl_controller"
-log "  Allowed flags: --scan_lines, --print_hz, --degrees_yaw, --help"
+
+log ""
+log "[marl_controller runtime flags]"
+log "  [scan_lines] [print_hz]     Positional args (defaults: 36 2.0)"
+log "  --scan_lines <int>          Number of laser scan divisions"
+log "  --print_hz <float>          Telemetry print frequency"
+log "  --degrees_yaw               Print yaw in degrees"
+log "  --help                      Show help"
