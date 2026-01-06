@@ -65,6 +65,7 @@ class MarlController(Node):
         self._target_lin = 0.0
         self._target_ang = 0.0
         self._have_cmd = False
+        self._seq_num = 0
 
         self._yaw_rad: Optional[float] = None
         self._scan_ranges: Optional[List[float]] = None
@@ -177,10 +178,11 @@ class MarlController(Node):
         )
 
         print(
-            f"[marl_controller] cmd({src}): "
+            f"[marl_controller] seq={self._seq_num} cmd({src}): "
             f"lin {lin:+.3f}, ang {ang:+.3f} | {yaw_str} | {scan_str}",
             flush=True,
         )
+        self._seq_num += 1
 
 
 def main() -> None:
