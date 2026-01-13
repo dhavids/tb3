@@ -14,7 +14,6 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 
-
 BURGER_MAX_LIN_VEL = 0.22
 BURGER_MAX_ANG_VEL = 2.84
 
@@ -174,7 +173,7 @@ class MarlController(Node):
         scan_str = (
             "scan: N/A"
             if self._scan_ranges is None
-            else f"scan[{len(self._scan_ranges)}]: {self._scan_ranges}"
+            else f"scan[{len(self._scan_ranges)}]: [{', '.join(f'{v:.3f}' for v in self._scan_ranges)}]"
         )
 
         print(
